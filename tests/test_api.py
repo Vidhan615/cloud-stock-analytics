@@ -138,6 +138,20 @@ def test_optimistic_updates_and_stale_delete(account):
     assert account.client.get("/api/portfolio").json["value"] == 0
 
 
+def test_fractional_cost_survives_quantity_edit_and_export(account):
+    result = account.holding(average_price="2720.123456")
+    holding = result.json["holdings"][0]
+    assert holding["average_price"] == 2720.12
+    assert holding["average_price_exact"] == "2720.123456"
+    updated = account.holding(
+        quantity=12, version=holding["version"], average_price=holding["average_price_exact"]
+    )
+    assert updated.json["invested"] == 32641.48
+    export = account.request("POST", "/api/exports", {})
+    row = list(csv.DictReader(io.StringIO(account.client.get(export.json["download_url"]).text)))[0]
+    assert row["average_price"] == "2720.123456"
+
+
 @pytest.mark.parametrize(
     "changes",
     [

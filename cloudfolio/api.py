@@ -420,7 +420,7 @@ def create_export():
     for row in data["holdings"]:
         writer.writerow(
             [
-                row[key]
+                row["average_price_exact"] if key == "average_price" else row[key]
                 for key in [
                     "symbol",
                     "quantity",

@@ -469,7 +469,8 @@ function openHolding(holding = null) {
   form.elements.symbol.value = holding?.symbol || state.selected;
   form.elements.symbol.disabled = !!holding;
   form.elements.quantity.value = holding?.quantity || "";
-  form.elements.average_price.value = holding?.average_price || "";
+  form.elements.average_price.value =
+    holding?.average_price_exact ?? holding?.average_price ?? "";
   $("#holding-title").textContent = holding
     ? `Edit ${holding.symbol}`
     : "Add a holding";

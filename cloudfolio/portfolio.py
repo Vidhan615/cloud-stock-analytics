@@ -24,6 +24,7 @@ def summary(holdings, market):
                 **holding,
                 **CATALOG[symbol],
                 "average_price": amount(holding["average_price"]),
+                "average_price_exact": str(holding["average_price"]),
                 "latest_price": market[symbol][-1]["close"],
                 "invested": amount(cost),
                 "value": amount(value),

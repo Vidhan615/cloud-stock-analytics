@@ -41,7 +41,7 @@ Position example:
 {"symbol":"RELIANCE","quantity":10,"average_price":"2720","version":0}
 ```
 
-Use `version: 0` for a new position. Use the version returned by your last summary when editing or removing a position. Existing-record writes match account, symbol and version in a single SQL statement; a stale or duplicate write returns 409. Quantity is a positive whole number; this endpoint sets a complete holding and is not a buy/sell order. Average prices are stored to six decimal places and displayed to two.
+Use `version: 0` for a new position. Use the version returned by your last summary when editing or removing a position. Existing-record writes match account, symbol and version in a single SQL statement; a stale or duplicate write returns 409. Quantity is a positive whole number; this endpoint sets a complete holding and is not a buy/sell order. Average prices are stored to six decimal places and displayed to two. The summary's `average_price_exact` string preserves the stored price for editing; CSV exports also retain that precision.
 
 Exports and charts accept an empty JSON object `{}`. Their returned download URL requires your session and an audit record proving ownership. No public S3 URL or public ACL is created. Missing/expired exports return 404. S3 authorization belongs to the app's IAM role; per-user authorization is enforced in Flask before storage access. The browser interface exposes portfolio and charts; watchlists are available through the API in v1.
 
