@@ -1,0 +1,45 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: cloudfolio
+      MYSQL_USER: cloudfolio
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD for the local MySQL container}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD for the local MySQL container}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+    restart: unless-stopped
+  init:
+    build: .
+    environment: &app-environment
+      APP_ENV: development
+      SECRET_KEY: ${SECRET_KEY:?Set a random SECRET_KEY}
+      COOKIE_SECURE: "false"
+      DATABASE_URL: mysql+pymysql://cloudfolio:${DB_PASSWORD}@db:3306/cloudfolio
+    command: [python, -m, flask, --app, wsgi, init-db]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+  web:
+    build: .
+    environment: *app-environment
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    volumes:
+      - exports:/app/instance/exports
+    networks: [internal]
+    restart: unless-stopped
+networks:
+  internal:
+volumes:
+  mysql-data:
+  exports:

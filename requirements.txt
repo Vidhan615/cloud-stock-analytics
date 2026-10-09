@@ -1,0 +1,5 @@
+Flask>=3.1.2,<4
+SQLAlchemy>=2.0.43,<3
+PyMySQL[rsa]>=1.1.2,<2
+boto3>=1.40,<2
+gunicorn>=23,<26; platform_system != "Windows"

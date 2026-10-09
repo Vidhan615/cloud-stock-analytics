@@ -1,0 +1,67 @@
+name: Application checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -r requirements.lock -r requirements-dev.txt
+      - run: ruff check . && ruff format --check .
+      - run: cfn-lint infra/cloudformation.yaml
+      - run: python -m pytest
+      - run: python scripts/build_preview.py && python scripts/package_release.py
+      - run: pip-audit -r requirements.lock
+      - uses: actions/upload-artifact@v4
+        with:
+          name: application-python-${{ matrix.python }}
+          path: build/cloudfolio.zip
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-root-password
+          MYSQL_DATABASE: cloudfolio_test
+          MYSQL_USER: cloudfolio_test
+          MYSQL_PASSWORD: ci-only-test-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TEST_DATABASE_URL: mysql+pymysql://cloudfolio_test:ci-only-test-password@127.0.0.1:3306/cloudfolio_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.lock -r requirements-dev.txt
+      - run: python -m pytest
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t cloudfolio:ci .
+      - name: Verify MySQL compose application
+        env:
+          DB_PASSWORD: ci-only-db-password
+          DB_ROOT_PASSWORD: ci-only-root-password
+          SECRET_KEY: ci-only-long-session-key-which-is-not-a-real-secret
+        run: |
+          docker compose up -d --build --wait --wait-timeout 180
+          curl --fail --retry 12 --retry-delay 5 http://127.0.0.1:8000/health/ready
+          docker compose down -v

@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest>=8.4,<10
+ruff>=0.12,<1
+cfn-lint>=1.40,<2
+pip-audit>=2.9,<3

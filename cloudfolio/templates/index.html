@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en" data-mode="application" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="description"
+      content="Cloudfolio: a three-tier stock analytics and portfolio monitoring project with Flask, AWS EC2, RDS MySQL and private S3 storage."
+    />
+    <title>Cloudfolio · Markets, in perspective.</title>
+    <link rel="icon" href="static/favicon.svg" />
+    <link rel="stylesheet" href="static/styles.css" />
+    <script src="static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to dashboard</a>
+    <aside class="sidebar">
+      <a class="brand" href="#"
+        ><span class="logo">c<span>↗</span></span>
+        <div>cloudfolio<small>MARKET INTELLIGENCE</small></div></a
+      >
+      <div class="workspace">
+        <span class="avatar">VD</span>
+        <div>
+          <b>Analytics workspace</b><small>Built by Vidhan Doshi</small>
+        </div>
+      </div>
+      <span class="nav-caption">YOUR WORKSPACE</span>
+      <nav aria-label="Main navigation">
+        <button class="nav active" data-page="overview">
+          <span>◫</span>Overview</button
+        ><button class="nav" data-page="analysis">
+          <span>⌁</span>Stock analysis</button
+        ><button class="nav" data-page="portfolio">
+          <span>▥</span>My portfolio</button
+        ><button class="nav" data-page="cloud">
+          <span>☁</span>Cloud architecture
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="cloud-card">
+          <span class="status-dot"></span><b>Built for the cloud.</b>
+          <p>Compute, database and storage.<br />One connected workspace.</p>
+          <div><span>EC2</span><span>RDS</span><span>S3</span></div>
+          <button data-page="cloud">
+            Explore the architecture <span>↗</span>
+          </button>
+        </div>
+        <a
+          href="https://github.com/Vidhan615/cloud-stock-analytics"
+          target="_blank"
+          rel="noreferrer"
+          class="repo-link"
+          >View project on GitHub <span>↗</span></a
+        >
+      </div>
+    </aside>
+    <div class="app">
+      <header class="topbar">
+        <div class="breadcrumb">
+          Workspace <span>›</span><b id="breadcrumb">Overview</b>
+        </div>
+        <div class="top-actions">
+          <span class="data-pill"><i></i>Sample dataset</span
+          ><button
+            id="theme"
+            class="icon-button"
+            aria-label="Switch theme"
+            title="Switch white / black theme"
+          >
+            ☾</button
+          ><button id="auth-button" class="secondary-button">
+            Sign in <span>→</span></button
+          ><button id="logout" class="text-button hidden">Sign out</button>
+        </div>
+      </header>
+      <main id="main">
+        <section id="overview" class="page">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">YOUR MARKET, AT A GLANCE</span>
+              <h1>Markets, in perspective.</h1>
+              <p>
+                A little clarity for your next decision. Analytics and portfolio
+                monitoring, together.
+              </p>
+            </div>
+            <div class="date-chip">
+              <span>DATA AS OF</span><b class="as-of">Loading…</b>
+            </div>
+          </div>
+          <div id="preview-notice" class="info-strip hidden">
+            Read-only portfolio preview. Accounts and cloud services are
+            available in the full Flask application.
+          </div>
+          <div class="stats-grid" id="overview-stats">
+            <div class="panel metric">
+              <span>Portfolio value</span><strong>—</strong
+              ><small>Loading portfolio</small>
+            </div>
+          </div>
+          <div class="overview-grid">
+            <section class="panel chart-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="eyebrow">PRICE HISTORY</span>
+                  <h2 id="overview-stock">
+                    RELIANCE <span>Reliance Industries</span>
+                  </h2>
+                </div>
+                <button class="small-button" id="open-analysis">
+                  Full analysis ↗
+                </button>
+              </div>
+              <div class="chart-price">
+                <strong id="overview-price">—</strong
+                ><span id="overview-change">—</span>
+                <div class="chart-legend">
+                  <i></i>Close <i class="blue"></i>SMA 20
+                </div>
+              </div>
+              <div
+                id="overview-chart"
+                class="stock-chart"
+                role="img"
+                aria-label="Stock price history and 20-session simple moving average"
+              ></div>
+              <div class="chart-footer">
+                <span>90 sample trading sessions</span
+                ><span>Descriptive analysis · no predictions</span>
+              </div>
+            </section>
+            <section class="panel market-list">
+              <div class="panel-heading">
+                <h2>The watch desk</h2>
+                <span class="badge">6 stocks</span>
+              </div>
+              <div class="search">
+                <span>⌕</span
+                ><input
+                  id="stock-search"
+                  aria-label="Search stocks"
+                  placeholder="Search a name or symbol…"
+                  maxlength="50"
+                />
+              </div>
+              <div id="stocks-list"></div>
+              <div class="market-list-note">
+                <i class="status-dot"></i>Fictional prices. Familiar company
+                labels.
+              </div>
+            </section>
+          </div>
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">KNOW WHAT YOU OWN</span>
+              <h2>Your portfolio, broken down.</h2>
+            </div>
+            <span class="portfolio-badge badge">Illustrative portfolio</span>
+          </div>
+          <section class="panel holdings-panel">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Shares</th>
+                    <th>Avg. buy price</th>
+                    <th>Latest price</th>
+                    <th>Market value</th>
+                    <th>Unrealised P/L</th>
+                    <th>Return</th>
+                  </tr>
+                </thead>
+                <tbody id="overview-holdings"></tbody>
+              </table>
+            </div>
+            <div class="table-note">
+              <span id="portfolio-caption"
+                >An example portfolio to explore the numbers.</span
+              ><button class="text-button" data-page="portfolio">
+                Manage portfolio →
+              </button>
+            </div>
+          </section>
+          <div class="bottom-cards">
+            <section class="panel insight-card">
+              <span class="insight-icon">⌁</span>
+              <div>
+                <h3>Indicators describe. They don’t decide.</h3>
+                <p>
+                  SMA, EMA and RSI put past prices in context. Combine the
+                  numbers with a thoughtful research process.
+                </p>
+                <button class="text-button" data-page="analysis">
+                  Understand your indicators →
+                </button>
+              </div>
+            </section>
+            <section class="panel insight-card">
+              <span class="insight-icon">☁</span>
+              <div>
+                <h3>Three tiers. A complete cloud project.</h3>
+                <p>
+                  A Flask API, a relational database and private object storage,
+                  with infrastructure and operational checks.
+                </p>
+                <button class="text-button" data-page="cloud">
+                  See how it connects →
+                </button>
+              </div>
+            </section>
+          </div>
+        </section>
+        <section id="analysis" class="page hidden">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">READ THE PRICE, WITH CONTEXT</span>
+              <h1>A closer look.</h1>
+              <p>
+                Explore historical prices and server-computed technical
+                indicators.
+              </p>
+            </div>
+            <label class="stock-picker"
+              >Select a stock<select id="analysis-symbol"></select
+            ></label>
+          </div>
+          <div class="analysis-layout">
+            <section class="panel chart-panel">
+              <div class="panel-heading">
+                <h2 id="analysis-title">RELIANCE</h2>
+                <div class="chart-toggles">
+                  <label
+                    ><input type="checkbox" id="sma-toggle" checked />SMA
+                    20</label
+                  ><label
+                    ><input type="checkbox" id="ema-toggle" checked />EMA
+                    20</label
+                  >
+                </div>
+              </div>
+              <div class="chart-price">
+                <strong id="analysis-price">—</strong
+                ><span id="analysis-change">—</span>
+              </div>
+              <div
+                id="analysis-chart"
+                class="stock-chart"
+                role="img"
+                aria-label="Daily closing prices, SMA and EMA"
+              ></div>
+              <div class="rsi-heading">
+                <b>RSI (14)</b
+                ><span
+                  >30 / 70 are reference levels, not trade instructions.</span
+                >
+              </div>
+              <div
+                id="rsi-chart"
+                class="rsi-chart"
+                role="img"
+                aria-label="Relative strength index"
+              ></div>
+              <div class="chart-footer">
+                <span class="as-of">—</span
+                ><button id="export-chart" class="text-button">
+                  Save chart to storage ↗
+                </button>
+              </div>
+            </section>
+            <aside class="indicator-stack" id="indicator-cards"></aside>
+          </div>
+          <section class="panel methodology">
+            <h2>What these numbers mean</h2>
+            <div>
+              <article>
+                <span class="badge">TREND</span>
+                <h3>Simple moving average</h3>
+                <p>
+                  The mean of the last 20 closes. It smooths fluctuations, but
+                  lags the latest price. The first 19 values need a warm-up.
+                </p>
+              </article>
+              <article>
+                <span class="badge">RECENT WEIGHT</span>
+                <h3>Exponential moving average</h3>
+                <p>
+                  An EMA gives newer prices more weight. This implementation
+                  starts from the first close and uses a 20-session span.
+                </p>
+              </article>
+              <article>
+                <span class="badge">MOMENTUM</span>
+                <h3>Relative strength index</h3>
+                <p>
+                  Wilder’s 14-session gain/loss smoothing. A reading above 70
+                  can persist in a strong trend; flat prices return 50.
+                </p>
+              </article>
+            </div>
+          </section>
+        </section>
+        <section id="portfolio" class="page hidden">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">YOUR HOLDINGS, ONE PLACE</span>
+              <h1>Keep the bigger picture.</h1>
+              <p>
+                Record whole-share holdings and average cost. The server
+                calculates marked value and unrealised P/L.
+              </p>
+            </div>
+            <button id="add-holding" class="primary-button">
+              + Add a holding
+            </button>
+          </div>
+          <div class="info-strip" id="portfolio-mode">
+            You are exploring an illustrative portfolio. Sign in to save your
+            own holdings.
+          </div>
+          <div class="stats-grid" id="portfolio-stats"></div>
+          <section class="panel holdings-panel">
+            <div class="panel-heading">
+              <h2>Holdings</h2>
+              <button id="export-portfolio" class="secondary-button">
+                ↓ Export portfolio
+              </button>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Shares</th>
+                    <th>Average cost</th>
+                    <th>Latest price</th>
+                    <th>Value</th>
+                    <th>Unrealised P/L</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="portfolio-holdings"></tbody>
+              </table>
+            </div>
+          </section>
+          <div class="portfolio-bottom">
+            <section class="panel allocation-panel">
+              <h2>Capital allocation</h2>
+              <div id="allocation"></div>
+            </section>
+            <section class="panel activity-panel">
+              <h2>Workspace activity</h2>
+              <div id="activity"></div>
+            </section>
+          </div>
+        </section>
+        <section id="cloud" class="page hidden">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">BEHIND THE WORKSPACE</span>
+              <h1>A cloud project you can trace.</h1>
+              <p>
+                From browser request to database record to private object
+                storage.
+              </p>
+            </div>
+            <span class="badge">AWS deployment blueprint</span>
+          </div>
+          <div class="info-strip">
+            This view explains the architecture. It does not claim that this
+            preview is running on AWS.
+          </div>
+          <section class="panel architecture">
+            <div class="arch-node browser-node">
+              <span>01 · PRESENTATION</span>
+              <h3>Browser dashboard</h3>
+              <p>HTML · CSS · JavaScript · SVG charts</p>
+            </div>
+            <div class="arch-arrow">↓ HTTPS / JSON</div>
+            <div class="aws-boundary">
+              <span class="aws-label">AWS · ap-south-1</span>
+              <div class="arch-node">
+                <span>02 · APPLICATION</span>
+                <h3>ALB → EC2 → Gunicorn + Flask</h3>
+                <p>TLS termination · private app port · instance role</p>
+              </div>
+              <div class="arch-arrow">
+                ↓ Validated requests & authenticated writes
+              </div>
+              <div class="arch-storage">
+                <div class="arch-node">
+                  <span>03 · DATABASE</span>
+                  <h3>Amazon RDS · MySQL</h3>
+                  <p>
+                    Private subnets · encrypted storage<br />Users, holdings,
+                    watchlist, audit records
+                  </p>
+                </div>
+                <div class="arch-node">
+                  <span>03 · OBJECT STORAGE</span>
+                  <h3>Amazon S3 · Private bucket</h3>
+                  <p>
+                    Versioned CSV exports & chart files<br />Dataset backups ·
+                    encryption · lifecycle rules
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+          <div class="cloud-feature-grid">
+            <section class="panel">
+              <span class="cloud-feature-icon">⌘</span>
+              <h3>Infrastructure as code</h3>
+              <p>
+                A CloudFormation template defines networking, compute, RDS, S3,
+                IAM, the load balancer and monitoring. Provisioning is explicit
+                and repeatable.
+              </p>
+            </section>
+            <section class="panel">
+              <span class="cloud-feature-icon">◇</span>
+              <h3>Defense in layers</h3>
+              <p>
+                Private database ingress, IMDSv2, TLS, signed HttpOnly cookies,
+                CSRF checks, hashed passwords and user-scoped queries.
+              </p>
+            </section>
+            <section class="panel">
+              <span class="cloud-feature-icon">↻</span>
+              <h3>Operate, then observe</h3>
+              <p>
+                Liveness and readiness checks, request IDs, structured
+                application logs, CloudWatch collection and a weekly dataset
+                backup job.
+              </p>
+            </section>
+            <section class="panel">
+              <span class="cloud-feature-icon">▦</span>
+              <h3>Start locally</h3>
+              <p>
+                SQLite for a quick start. Docker Compose adds MySQL. The same
+                relational models and API power the AWS configuration.
+              </p>
+            </section>
+          </div>
+          <section class="panel deploy-card">
+            <div>
+              <h2>The full project is open.</h2>
+              <p>
+                Application code, tests, Docker, AWS configuration and
+                deployment runbooks.
+              </p>
+            </div>
+            <a
+              class="primary-button"
+              href="https://github.com/Vidhan615/cloud-stock-analytics"
+              target="_blank"
+              rel="noreferrer"
+              >Explore the repository ↗</a
+            >
+          </section>
+        </section>
+        <footer>
+          <span>Cloudfolio <i></i> Built for clarity.</span
+          ><span>Sample data · Educational analytics</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="auth-modal">
+      <div class="modal-header">
+        <h2 id="auth-title">Welcome back.</h2>
+        <button class="icon-button close-dialog" aria-label="Close sign in">
+          ×
+        </button>
+      </div>
+      <form id="auth-form">
+        <p id="auth-copy">Sign in to your personal portfolio workspace.</p>
+        <label id="name-field" class="hidden"
+          >Your name<input
+            name="name"
+            maxlength="80"
+            autocomplete="name" /></label
+        ><label
+          >Email address<input
+            name="email"
+            type="email"
+            required
+            maxlength="254"
+            autocomplete="email"
+            placeholder="you@example.com" /></label
+        ><label
+          >Password<input
+            name="password"
+            type="password"
+            required
+            minlength="12"
+            maxlength="128"
+            autocomplete="current-password"
+            placeholder="At least 12 characters"
+        /></label>
+        <p class="form-error" id="auth-error" role="alert"></p>
+        <button class="primary-button full" type="submit" id="auth-submit">
+          Sign in →</button
+        ><button class="text-button full" type="button" id="switch-auth">
+          New here? Create an account</button
+        ><small
+          >Portfolio records are stored in the application database. No actual
+          trades or money.</small
+        >
+      </form>
+    </dialog>
+    <dialog id="holding-modal">
+      <div class="modal-header">
+        <h2 id="holding-title">Add a holding</h2>
+        <button
+          class="icon-button close-dialog"
+          aria-label="Close holding form"
+        >
+          ×
+        </button>
+      </div>
+      <form id="holding-form">
+        <p>
+          Record the current position, including its average buy cost. This
+          replaces the saved quantity; it does not execute a trade.
+        </p>
+        <label>Stock<select name="symbol" id="holding-symbol"></select></label>
+        <div class="field-row">
+          <label
+            >Whole shares<input
+              name="quantity"
+              type="number"
+              min="1"
+              max="1000000"
+              step="1"
+              required /></label
+          ><label
+            >Average buy price (₹)<input
+              name="average_price"
+              type="number"
+              min=".01"
+              max="100000000"
+              step=".000001"
+              required
+          /></label>
+        </div>
+        <p class="form-error" id="holding-error" role="alert"></p>
+        <button class="primary-button full" type="submit">
+          Save holding →
+        </button>
+      </form>
+    </dialog>
+    <dialog id="confirm-modal">
+      <div class="modal-header">
+        <h2>Remove this holding?</h2>
+        <button
+          class="icon-button close-dialog"
+          aria-label="Close removal dialog"
+        >
+          ×
+        </button>
+      </div>
+      <div class="modal-content">
+        <p id="remove-copy"></p>
+        <p>
+          Export a portfolio copy first if you want to keep this record. Removal
+          is recorded in your activity history.
+        </p>
+        <button id="confirm-remove" class="danger-button">
+          Remove holding
+        </button>
+      </div>
+    </dialog>
+    <div id="toast" class="toast hidden" role="status">
+      <span id="toast-text"></span
+      ><button
+        class="icon-button"
+        id="dismiss-toast"
+        aria-label="Dismiss notification"
+      >
+        ×
+      </button>
+    </div>
+  </body>
+</html>

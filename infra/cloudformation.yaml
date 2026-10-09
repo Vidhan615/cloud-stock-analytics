@@ -1,0 +1,398 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cloudfolio - HTTPS ALB, EC2 Flask, private encrypted RDS MySQL, private S3 and CloudWatch. Creates billable resources.
+Parameters:
+  ArtifactBucket:
+    Type: String
+    Description: Existing private S3 bucket containing the application ZIP, in this region.
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  ArtifactKey:
+    Type: String
+    Default: releases/cloudfolio.zip
+    AllowedPattern: '^[a-zA-Z0-9][a-zA-Z0-9._/-]+\.zip$'
+  ArtifactSha256:
+    Type: String
+    Description: SHA256 of the packaged application ZIP.
+    AllowedPattern: '^[a-fA-F0-9]{64}$'
+  CertificateArn:
+    Type: String
+    Description: An issued ACM certificate in this region, covering AppDomain.
+    AllowedPattern: '^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/[a-zA-Z0-9-]+$'
+  AppDomain:
+    Type: String
+    Description: DNS name covered by the certificate; route it to the ALB.
+    AllowedPattern: '^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Optional Route 53 public hosted zone ID for automatic alias creation.
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t3.small, db.t3.medium]
+  DBDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+Conditions:
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, '']]
+  ProtectDB: !Equals [!Ref DBDeletionProtection, 'true']
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-vpc'}]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: {VpcId: !Ref VPC, InternetGatewayId: !Ref InternetGateway}
+  PublicA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.1.0/24
+      MapPublicIpOnLaunch: true
+  PublicB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.20.2.0/24
+      MapPublicIpOnLaunch: true
+  PrivateA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.11.0/24
+      MapPublicIpOnLaunch: false
+  PrivateB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.20.12.0/24
+      MapPublicIpOnLaunch: false
+  PublicRoutes:
+    Type: AWS::EC2::RouteTable
+    Properties: {VpcId: !Ref VPC}
+  InternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties: {RouteTableId: !Ref PublicRoutes, DestinationCidrBlock: 0.0.0.0/0, GatewayId: !Ref InternetGateway}
+  RouteA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicA, RouteTableId: !Ref PublicRoutes}
+  RouteB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PublicB, RouteTableId: !Ref PublicRoutes}
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTPS and HTTP-to-HTTPS redirect
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Only ALB can reach nginx; no public SSH or app port
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref ALBSecurityGroup}
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MySQL only from application security group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 3306, ToPort: 3306, SourceSecurityGroupId: !Ref AppSecurityGroup}
+  DBSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private database subnets in two AZs
+      SubnetIds: [!Ref PrivateA, !Ref PrivateB]
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: mysql
+      DBName: cloudfolio
+      MasterUsername: cloudfolio_admin
+      ManageMasterUserPassword: true
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: '20'
+      MaxAllocatedStorage: 100
+      StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: !If [ProtectDB, true, false]
+      DBSubnetGroupName: !Ref DBSubnets
+      VPCSecurityGroups: [!GetAtt DBSecurityGroup.GroupId]
+      EnableCloudwatchLogsExports: [error, slowquery]
+  SessionSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Cloudfolio signed-session key (no plaintext secret in template)
+      GenerateSecretString: {PasswordLength: 64}
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true}
+      OwnershipControls: {Rules: [{ObjectOwnership: BucketOwnerEnforced}]}
+      BucketEncryption: {ServerSideEncryptionConfiguration: [{ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}}]}
+      VersioningConfiguration: {Status: Enabled}
+      LifecycleConfiguration:
+        Rules:
+          - {Id: ExportRetention, Status: Enabled, Prefix: exports/, ExpirationInDays: 30, NoncurrentVersionExpiration: {NoncurrentDays: 7}}
+          - {Id: ChartRetention, Status: Enabled, Prefix: charts/, ExpirationInDays: 30, NoncurrentVersionExpiration: {NoncurrentDays: 7}}
+          - {Id: DatasetVersions, Status: Enabled, Prefix: datasets/, ExpirationInDays: 90, NoncurrentVersionExpiration: {NoncurrentDays: 90}}
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt DataBucket.Arn, !Sub '${DataBucket.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': 'false'}}
+  AppLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: {RetentionInDays: 14}
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: 'sts:AssumeRole'}]
+      ManagedPolicyArns: [!Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore']
+      Policies:
+        - PolicyName: ApplicationResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['s3:GetObject']
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ArtifactBucket}/${ArtifactKey}'
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject']
+                Resource: [!Sub '${DataBucket.Arn}/exports/*', !Sub '${DataBucket.Arn}/charts/*', !Sub '${DataBucket.Arn}/datasets/*']
+              - Effect: Allow
+                Action: ['secretsmanager:GetSecretValue']
+                Resource: [!GetAtt Database.MasterUserSecret.SecretArn, !Ref SessionSecret]
+              - Effect: Allow
+                Action: ['logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams']
+                Resource: !GetAtt AppLogs.Arn
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref InstanceRole]}
+  Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: [InternetRoute, RouteA, InstanceRole]
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicA
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      MetadataOptions: {HttpTokens: required, HttpEndpoint: enabled, HttpPutResponseHopLimit: 1}
+      BlockDeviceMappings: [{DeviceName: /dev/sda1, Ebs: {Encrypted: true, VolumeSize: 20, VolumeType: gp3, DeleteOnTermination: true}}]
+      Tags: [{Key: Name, Value: !Sub '${AWS::StackName}-app'}]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y python3-venv nginx unzip curl
+          useradd --system --home /opt/cloudfolio --shell /usr/sbin/nologin cloudfolio
+          mkdir -p /opt/cloudfolio /var/log/cloudfolio /etc/cloudfolio
+          python3 -m venv /opt/bootstrap
+          /opt/bootstrap/bin/pip install boto3
+          /opt/bootstrap/bin/python - <<'PY'
+          import boto3, hashlib, zipfile
+          path = '/opt/cloudfolio/release.zip'
+          boto3.client('s3', region_name='${AWS::Region}').download_file('${ArtifactBucket}', '${ArtifactKey}', path)
+          with open(path, 'rb') as source:
+              assert hashlib.file_digest(source, 'sha256').hexdigest().lower() == '${ArtifactSha256}'.lower(), 'Artifact hash mismatch'
+          with zipfile.ZipFile(path) as archive:
+              archive.extractall('/opt/cloudfolio')
+          PY
+          python3 -m venv /opt/cloudfolio/.venv
+          /opt/cloudfolio/.venv/bin/pip install -r /opt/cloudfolio/requirements.lock
+          curl --fail --retry 3 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem -o /etc/cloudfolio/rds-ca.pem
+          cat > /etc/cloudfolio/app.env <<'ENV'
+          APP_ENV=production
+          COOKIE_SECURE=true
+          TRUST_PROXY=true
+          INSTANCE_DIR=/opt/cloudfolio/instance
+          AWS_REGION=${AWS::Region}
+          APP_SECRET_ARN=${SessionSecret}
+          DB_SECRET_ARN=${Database.MasterUserSecret.SecretArn}
+          DB_HOST=${Database.Endpoint.Address}
+          DB_NAME=cloudfolio
+          DB_TLS_CA=/etc/cloudfolio/rds-ca.pem
+          S3_BUCKET=${DataBucket}
+          ENV
+          chmod 640 /etc/cloudfolio/app.env
+          chown root:cloudfolio /etc/cloudfolio/app.env
+          chown -R cloudfolio:cloudfolio /opt/cloudfolio /var/log/cloudfolio
+          cat > /etc/systemd/system/cloudfolio.service <<'UNIT'
+          [Unit]
+          Description=Cloudfolio analytics API
+          After=network-online.target
+          Wants=network-online.target
+          StartLimitIntervalSec=0
+          [Service]
+          User=cloudfolio
+          Group=cloudfolio
+          WorkingDirectory=/opt/cloudfolio
+          EnvironmentFile=/etc/cloudfolio/app.env
+          ExecStartPre=/opt/cloudfolio/.venv/bin/python -m flask --app wsgi init-db
+          ExecStart=/opt/cloudfolio/.venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 --timeout 30 --error-logfile - wsgi:app
+          Restart=on-failure
+          RestartSec=10
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ReadWritePaths=/opt/cloudfolio/instance /var/log/cloudfolio
+          StandardOutput=append:/var/log/cloudfolio/app.log
+          StandardError=append:/var/log/cloudfolio/app.log
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          mkdir -p /opt/cloudfolio/instance
+          chown cloudfolio:cloudfolio /opt/cloudfolio/instance
+          cat > /etc/nginx/sites-available/cloudfolio <<'NGINX'
+          server {
+            listen 80 default_server;
+            server_name _;
+            access_log off;
+            client_max_body_size 16k;
+            location / {
+              proxy_pass http://127.0.0.1:8000;
+              proxy_set_header Host $host;
+              proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+              proxy_read_timeout 35s;
+            }
+          }
+          NGINX
+          rm -f /etc/nginx/sites-enabled/default
+          ln -s /etc/nginx/sites-available/cloudfolio /etc/nginx/sites-enabled/cloudfolio
+          cat > /etc/systemd/system/cloudfolio-backup.service <<'BACKUP'
+          [Unit]
+          Description=Private versioned dataset backup
+          [Service]
+          Type=oneshot
+          User=cloudfolio
+          WorkingDirectory=/opt/cloudfolio
+          EnvironmentFile=/etc/cloudfolio/app.env
+          ExecStart=/opt/cloudfolio/.venv/bin/python -m flask --app wsgi backup-dataset
+          StandardOutput=append:/var/log/cloudfolio/app.log
+          StandardError=append:/var/log/cloudfolio/app.log
+          BACKUP
+          cat > /etc/systemd/system/cloudfolio-backup.timer <<'TIMER'
+          [Unit]
+          Description=Weekly dataset backup schedule
+          [Timer]
+          OnCalendar=Sun *-*-* 03:00:00 UTC
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          TIMER
+          curl --fail --retry 3 https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -o /tmp/cloudwatch.deb
+          dpkg -i /tmp/cloudwatch.deb
+          cat > /etc/cloudfolio/cloudwatch.json <<'LOGS'
+          {"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/log/cloudfolio/app.log","log_group_name":"${AppLogs}","log_stream_name":"{instance_id}"}]}}}}
+          LOGS
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/etc/cloudfolio/cloudwatch.json -s
+          systemctl daemon-reload
+          systemctl enable --now cloudfolio.service cloudfolio-backup.timer
+          nginx -t
+          systemctl restart nginx
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: GatewayAttachment
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      Subnets: [!Ref PublicA, !Ref PublicB]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+      LoadBalancerAttributes: [{Key: routing.http.drop_invalid_header_fields.enabled, Value: 'true'}]
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VPC
+      HealthCheckPath: /health/ready
+      HealthCheckIntervalSeconds: 30
+      Matcher: {HttpCode: '200'}
+      Targets: [{Id: !Ref Instance, Port: 80}]
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates: [{CertificateArn: !Ref CertificateArn}]
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions: [{Type: forward, TargetGroupArn: !Ref TargetGroup}]
+  HTTPRedirect:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions: [{Type: redirect, RedirectConfig: {Protocol: HTTPS, Port: '443', StatusCode: HTTP_301}}]
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref AppDomain
+      Type: A
+      AliasTarget: {DNSName: !GetAtt LoadBalancer.DNSName, HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID, EvaluateTargetHealth: true}
+  UnhealthyTargetsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Application target is unhealthy; attach a notification action after deployment.
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions: [{Name: TargetGroup, Value: !GetAtt TargetGroup.TargetGroupFullName}, {Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+Outputs:
+  ApplicationURL: {Value: !Sub 'https://${AppDomain}'}
+  ALBDNSName: {Value: !GetAtt LoadBalancer.DNSName}
+  InstanceId: {Value: !Ref Instance}
+  PrivateDataBucket: {Value: !Ref DataBucket}
+  DatabaseEndpoint: {Value: !GetAtt Database.Endpoint.Address}
+  LogGroup: {Value: !Ref AppLogs}
